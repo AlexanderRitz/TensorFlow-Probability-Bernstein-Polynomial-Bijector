@@ -72,24 +72,25 @@ class BernsteinFlow(tfd.TransformedDistribution):
                 pvector, dtype=dtype)
 
             shape = prefer_static.shape(pvector)
-            self.bernstein_order = shape[-1] - 4
+            self.bernstein_order = shape[-1] - 5
             if tensorshape_util.rank(pvector.shape) > 1:
                 batch_shape = shape[:-1]
             else:
                 batch_shape = [1]
 
-            a1, b1, theta, a2, b2 = self.slice_parameter_vectors(pvector)
+            a1, b1, theta, a2, b2, v = self.slice_parameter_vectors(pvector)
 
             bijector = self.init_bijectors(
                 a1=tf.math.softplus(a1),
                 b1=b1,
                 theta=BernsteinBijector.constrain_theta(theta),
                 a2=tf.math.softplus(a2),
-                b2=b2
+                b2=b2,
+                v = v
             )
 
             super().__init__(
-                distribution=tfd.Normal(loc=tf.zeros(batch_shape), scale=1.),
+                distribution=tfd.StudentT(df = v, loc=tf.zeros(batch_shape), scale=1.),
                 bijector=bijector,
                 name=name)
 
@@ -103,16 +104,16 @@ class BernsteinFlow(tfd.TransformedDistribution):
         :returns:   unpacked list of parameter vectors.
         :rtype:     list
         """
-        p_len = [1, 1, self.bernstein_order, 1, 1]
+        p_len = [1, 1, self.bernstein_order, 1, 1, 1]
 
         sliced_pvector = []
         for i in range(len(p_len)):
             p = pvector[..., sum(p_len[:i]):sum(p_len[:i + 1])]
             sliced_pvector.append(tf.squeeze(p))
 
-        a1, b1, theta, a2, b2 = sliced_pvector
+        a1, b1, theta, a2, b2, v = sliced_pvector
 
-        return a1, b1, theta, a2, b2
+        return a1, b1, theta, a2, b2, v
 
     def init_bijectors(self,
                        a1: tf.Tensor,
@@ -120,6 +121,7 @@ class BernsteinFlow(tfd.TransformedDistribution):
                        theta: tf.Tensor,
                        a2: tf.Tensor,
                        b2: tf.Tensor,
+                       v:   tf.Tensor,
                        name: str = 'bernstein_flow') -> tfb.Bijector:
         """
         Builds a normalizing flow using a Bernstein polynomial as Bijector.
@@ -134,6 +136,8 @@ class BernsteinFlow(tfd.TransformedDistribution):
         :type       a2:     Tensor
         :param      b2:     The shift of f3.
         :type       b2:     Tensor
+        :param      v:      Degrees of freedom of the source t distribution.
+        :type       v:      Tensor
         :param      name:   The name to give Ops created by the initializer.
         :type       name:   string
 
